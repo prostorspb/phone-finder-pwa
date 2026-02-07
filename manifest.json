@@ -2,7 +2,7 @@
   "name": "Poisk - Найди телефон",
   "short_name": "poisk",
   "description": "Громкий сигнал для поиска телефона",
-  "start_url": "/index.html",
+  "start_url": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#1a1a2e",
