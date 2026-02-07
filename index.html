@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ff3b30">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<title>Poisk</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1a1a2e;
+  color: #fff;
+  overflow: hidden;
+}
+
+.container {
+  text-align: center;
+  padding: 2rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+h1 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  letter-spacing: 0.1em;
+}
+
+.pulse-ring {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  margin: 2rem auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.pulse-ring .core {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #ff3b30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  z-index: 2;
+  box-shadow: 0 0 40px rgba(255, 59, 48, 0.6);
+  transition: transform 0.2s;
+}
+
+.pulse-ring .core:active {
+  transform: scale(0.95);
+}
+
+.pulse-ring.active .core {
+  animation: corePulse 0.5s ease-in-out infinite alternate;
+}
+
+.pulse-ring .ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 59, 48, 0.4);
+  opacity: 0;
+}
+
+.pulse-ring.active .ring {
+  animation: ringPulse 1.5s ease-out infinite;
+}
+
+.pulse-ring.active .ring:nth-child(2) { animation-delay: 0.5s; }
+.pulse-ring.active .ring:nth-child(3) { animation-delay: 1s; }
+
+@keyframes ringPulse {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes corePulse {
+  0% { box-shadow: 0 0 40px rgba(255, 59, 48, 0.6); }
+  100% { box-shadow: 0 0 80px rgba(255, 59, 48, 0.9), 0 0 120px rgba(255, 59, 48, 0.3); }
+}
+
+.status {
+  font-size: 1.2rem;
+  margin-top: 1.5rem;
+  opacity: 0.8;
+}
+
+.stop-btn {
+  margin-top: 2rem;
+  padding: 1rem 3rem;
+  font-size: 1.2rem;
+  border: none;
+  border-radius: 50px;
+  background: #333;
+  color: #fff;
+  cursor: pointer;
+  display: none;
+  transition: background 0.2s;
+}
+
+.stop-btn.visible { display: inline-block; }
+.stop-btn:active { background: #555; }
+
+.install-hint {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1rem;
+  right: 1rem;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(10px);
+  padding: 1rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  opacity: 0.9;
+  display: none;
+}
+
+.install-hint.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>📍 POISK</h1>
+
+  <div class="pulse-ring" id="pulseRing" onclick="toggleAlarm()">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="core" id="coreBtn">🔊</div>
+  </div>
+
+  <div class="status" id="status">Нажмите для теста</div>
+
+  <button class="stop-btn" id="stopBtn" onclick="stopAlarm()">СТОП</button>
+</div>
+
+<div class="install-hint" id="installHint">
+  💡 Чтобы установить: меню браузера (⋮) → «Установить приложение» или «На главный экран». Назовите ярлык <b>poisk</b> для голосовой команды.
+</div>
+
+<script>
+let audioCtx = null;
+let oscillators = [];
+let gainNode = null;
+let isPlaying = false;
+let autoStarted = false;
+
+// Создаём громкий тревожный звук через Web Audio API
+function startAlarm() {
+  if (isPlaying) return;
+
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = 1.0; // Максимальная громкость
+    gainNode.connect(audioCtx.destination);
+
+    // Основной тон — пронзительный писк
+    const osc1 = audioCtx.createOscillator();
+    osc1.type = 'square';
+    osc1.frequency.value = 2500;
+    osc1.connect(gainNode);
+    osc1.start();
+    oscillators.push(osc1);
+
+    // Второй тон для "сирены"
+    const osc2 = audioCtx.createOscillator();
+    osc2.type = 'sawtooth';
+    osc2.frequency.value = 1800;
+    osc2.connect(gainNode);
+    osc2.start();
+    oscillators.push(osc2);
+
+    // Модуляция — эффект сирены
+    const lfo = audioCtx.createOscillator();
+    lfo.frequency.value = 3; // 3 раза в секунду
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 800;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc1.frequency);
+    lfoGain.connect(osc2.frequency);
+    lfo.start();
+    oscillators.push(lfo);
+
+    isPlaying = true;
+    document.getElementById('pulseRing').classList.add('active');
+    document.getElementById('coreBtn').textContent = '🔔';
+    document.getElementById('status').textContent = 'СИГНАЛ АКТИВЕН';
+    document.getElementById('stopBtn').classList.add('visible');
+
+    // Автостоп через 2 минуты
+    setTimeout(() => { if (isPlaying) stopAlarm(); }, 120000);
+
+  } catch (e) {
+    document.getElementById('status').textContent = 'Ошибка аудио: ' + e.message;
+  }
+}
+
+function stopAlarm() {
+  if (!isPlaying) return;
+
+  oscillators.forEach(o => { try { o.stop(); } catch(e){} });
+  oscillators = [];
+
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+
+  isPlaying = false;
+  document.getElementById('pulseRing').classList.remove('active');
+  document.getElementById('coreBtn').textContent = '🔊';
+  document.getElementById('status').textContent = 'Нажмите для запуска';
+  document.getElementById('stopBtn').classList.remove('visible');
+}
+
+function toggleAlarm() {
+  if (isPlaying) stopAlarm();
+  else startAlarm();
+}
+
+// Автозапуск звука при открытии
+// На Android браузер блокирует автозвук, но при запуске из PWA (standalone) работает
+window.addEventListener('load', () => {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+
+  if (isStandalone) {
+    // PWA режим — пробуем сразу запустить
+    startAlarm();
+    autoStarted = true;
+  } else {
+    // Браузер — показываем подсказку об установке
+    document.getElementById('installHint').classList.add('visible');
+    document.getElementById('status').textContent = 'Установите как приложение!';
+  }
+});
+
+// Если автозапуск не сработал, запускаем по первому касанию
+document.addEventListener('touchstart', function firstTouch() {
+  if (!isPlaying && !autoStarted) {
+    startAlarm();
+    autoStarted = true;
+  }
+  document.removeEventListener('touchstart', firstTouch);
+}, { once: true });
+
+// Service Worker регистрация
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
