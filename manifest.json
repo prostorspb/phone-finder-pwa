@@ -1,6 +1,7 @@
 {
   "name": "Poisk - Найди телефон",
   "short_name": "poisk",
+  "version": "2.0.0",
   "description": "Громкий сигнал для поиска телефона",
   "start_url": "./",
   "display": "standalone",

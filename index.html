@@ -163,12 +163,22 @@ let oscillators = [];
 let gainNode = null;
 let isPlaying = false;
 let autoStarted = false;
+let flashInterval = null;
+let torchTrack = null;
+let vibrationInterval = null;
 
 // Создаём громкий тревожный звук через Web Audio API
 function startAlarm() {
   if (isPlaying) return;
 
   try {
+    // Максимальная громкость системы (пытаемся)
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler('play', () => {});
+      } catch(e) {}
+    }
+
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     gainNode = audioCtx.createGain();
     gainNode.gain.value = 1.0; // Максимальная громкость
@@ -207,11 +217,95 @@ function startAlarm() {
     document.getElementById('status').textContent = 'СИГНАЛ АКТИВЕН';
     document.getElementById('stopBtn').classList.add('visible');
 
+    // Мигание экрана
+    startFlashing();
+
+    // Вибрация
+    startVibration();
+
+    // Фонарик
+    startFlashlight();
+
     // Автостоп через 2 минуты
     setTimeout(() => { if (isPlaying) stopAlarm(); }, 120000);
 
   } catch (e) {
     document.getElementById('status').textContent = 'Ошибка аудио: ' + e.message;
+  }
+}
+
+// Мигание экрана ярким цветом
+function startFlashing() {
+  let isWhite = false;
+  flashInterval = setInterval(() => {
+    document.body.style.background = isWhite ? '#ff0000' : '#ffffff';
+    isWhite = !isWhite;
+  }, 300);
+}
+
+function stopFlashing() {
+  if (flashInterval) {
+    clearInterval(flashInterval);
+    flashInterval = null;
+    document.body.style.background = '#1a1a2e';
+  }
+}
+
+// Вибрация
+function startVibration() {
+  if ('vibrate' in navigator) {
+    const vibratePattern = () => {
+      navigator.vibrate([200, 100, 200, 100, 200]);
+    };
+    vibratePattern();
+    vibrationInterval = setInterval(vibratePattern, 1000);
+  }
+}
+
+function stopVibration() {
+  if (vibrationInterval) {
+    clearInterval(vibrationInterval);
+    vibrationInterval = null;
+  }
+  if ('vibrate' in navigator) {
+    navigator.vibrate(0);
+  }
+}
+
+// Включение фонарика
+async function startFlashlight() {
+  try {
+    if ('mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices) {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities();
+
+      if (capabilities.torch) {
+        await track.applyConstraints({ advanced: [{ torch: true }] });
+        torchTrack = track;
+
+        // Мигание фонарика
+        let torchOn = true;
+        setInterval(async () => {
+          if (torchTrack && isPlaying) {
+            torchOn = !torchOn;
+            await torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+          }
+        }, 300);
+      }
+    }
+  } catch (e) {
+    console.log('Фонарик недоступен:', e);
+  }
+}
+
+function stopFlashlight() {
+  if (torchTrack) {
+    torchTrack.stop();
+    torchTrack = null;
   }
 }
 
@@ -225,6 +319,11 @@ function stopAlarm() {
     audioCtx.close();
     audioCtx = null;
   }
+
+  // Останавливаем все эффекты
+  stopFlashing();
+  stopVibration();
+  stopFlashlight();
 
   isPlaying = false;
   document.getElementById('pulseRing').classList.remove('active');
@@ -264,9 +363,35 @@ document.addEventListener('touchstart', function firstTouch() {
   document.removeEventListener('touchstart', firstTouch);
 }, { once: true });
 
-// Service Worker регистрация
+// Service Worker регистрация с автообновлением
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  let refreshing = false;
+
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // Проверка обновлений каждые 60 секунд
+    setInterval(() => reg.update(), 60000);
+
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          // Новая версия доступна!
+          if (confirm('🎉 Доступна новая версия приложения! Обновить сейчас?')) {
+            newWorker.postMessage({ action: 'skipWaiting' });
+          }
+        }
+      });
+    });
+  });
+
+  // Перезагрузка при активации нового SW
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
 }
 </script>
 </body>
